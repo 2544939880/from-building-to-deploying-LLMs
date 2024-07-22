@@ -1,4 +1,8 @@
+import os
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 import tiktoken
 from torch.utils.data import DataLoader
 import math
@@ -6,6 +10,346 @@ import matplotlib.pyplot as plt
 
 from thop import profile
 from torchsummary import summary
+
+class Trainer():
+    '''
+    A class to encapsulate the training, evaluation, and testing procedures for a PyTorch model.
+
+    This class supports various features including learning rate warmup, cosine decay, gradient 
+    clipping, and periodic evaluation. It can handle both classification and regression tasks.
+    '''
+
+    def __init__(
+            self, 
+            model: nn.Module, 
+            device: torch.device, 
+            num_epochs: int,
+            optimizer: torch.optim.Optimizer,
+            train_loader: DataLoader = None, 
+            valid_loader: DataLoader = None, 
+            eval_freq: int = None, 
+            is_classification: bool = False, 
+            warmup: bool = False,
+            cos_dec: bool = False,
+            grd_clip: bool = False, 
+            inital_lr: float = 3e-5, 
+            min_lr: float = 1e-6,
+            checkpoint_path: str = None,
+    ):
+        """
+        Initializes the Trainer object with the provided model, training parameters, and options.
+
+        Args:
+        - model: The PyTorch model.
+        - device: The device to run the model on ('cpu', 'mps', or 'cuda').
+        - num_epochs: The number of epochs for training.
+        - optimizer: The optimizer for training the model.
+        - train_loader: The DataLoader for training data (default: None).
+        - valid_loader: The DataLoader for validation data (default: None).
+        - eval_freq: Evaluation frequency to control the number of batches processed (default: None).
+        - is_classification: Whether the task is classification, if is_classification is True, only 
+                             the last time step of the model's output is used for loss calculation
+                             (default: False).
+        - warmup: Whether to use learning rate warmup (default: False).
+        - cos_dec: Whether to use cosine decay for learning rate (default: False).
+        - grd_clip: Whether to use gradient clipping (default: False).
+        - initial_lr: Initial learning rate with warmup (default: 3e-5).
+        - min_lr: Minimum learning rate with cosine decay (default: 1e-6).
+        - checkpoint_path: The path to the directory containing the model checkpoints (default: None).
+        """
+        self.model = model.to(device)
+        self.device = device
+        self.num_epochs = num_epochs
+        self.optimizer = optimizer
+        self.eval_freq = eval_freq
+        self.is_classification = is_classification
+        self.train_loader = train_loader
+        self.valid_loader = valid_loader
+        self.warmup = warmup
+        self.cos_dec = cos_dec
+        self.grd_clip = grd_clip
+        self.inital_lr = inital_lr
+        self.min_lr = min_lr
+        self.checkpoint_path = checkpoint_path
+
+        # Initializes the logs to keep track of training progress
+        self.log = {
+            "train_losses": [],      # List to store training losses
+            "valid_losses": [],      # List to store validation losses
+            "train_accs": [],        # List to store training accuracies
+            "valid_accs": [],        # List to store validation accuracies
+            "track_tokens_seen": [], # List to track tokens seen (if applicable)
+            "track_lrs": [],         # List to track learning rates
+            "global_step": -1,       # Counter for the global step in training
+        }
+
+
+    def __log__(self):
+        """
+        Get the training logs
+        """
+        return self.log
+    
+    def __calculate_loss_batch__(
+            self, 
+            input_batch: torch.Tensor, 
+            target_batch: torch.Tensor,
+    ):
+        """
+        Calculates the loss for a single batch of data.
+        
+        Args:
+        - input_batch (torch.Tensor): Input data batch.
+        - target_batch (torch.Tensor): Target labels batch.
+    
+        Returns:
+        - loss (torch.Tensor): The computed loss for the batch.
+        """
+        input_batch = input_batch.to(self.device)
+        target_batch = target_batch.to(self.device)
+
+        # Forward pass
+        logits = self.model(input_batch)
+
+        if self.is_classification:
+            # For classification tasks, use only the last time step's output
+            logits = logits[:, -1, :]  # [batch_size, num_classes]
+            loss = F.cross_entropy(logits, target_batch)
+        else:
+            # For prediction tasks, flatten logits and target
+            loss = F.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
+        
+        return loss
+
+    def __calculate_loss__(self, data_loader:DataLoader):
+        """
+        Calculates the average loss over all batches (or self.eval_freq batches) in the data loader.
+        
+        Args:
+        - data_loader (DataLoader): The data loader providing batches of data.
+        
+        Returns:
+        - average_loss (float): The average loss over all processed batches.
+        """
+        total_loss = 0.0
+
+        if self.eval_freq is None:
+            num_batches = len(data_loader)
+        else:
+            # Control the number of batches in the dataloader with "num_batches"
+            num_batches = min(self.eval_freq, len(data_loader))
+        
+        for i, (input_batch, target_batch) in enumerate(data_loader):
+            if i < num_batches:
+                # Calculate loss for the current batch
+                batch_loss = self.__calculate_loss_batch__(input_batch, target_batch)
+                total_loss += batch_loss.item()
+            else:
+                break
+
+        # Compute the average loss over processed batches
+        return total_loss / num_batches
+
+    def __calculate_accuracy__(self, data_loader: DataLoader):
+        """
+        Calculates the accuracy over all batches (or self.eval_freq batches) for 
+        classification tasks using the provided data loader.
+
+        Args:
+        - data_loader (DataLoader): The data loader providing batches of data.
+
+        Returns:
+        - accuracy (float): The accuracy over all processed batches.
+        """
+        self.model.eval()   # Set the model to evaluation mode
+        correct_predictions, total_predictions = 0, 0
+
+        if self.eval_freq is None:
+            num_batches = len(data_loader)
+        else:
+            num_batches = min(self.eval_freq, len(data_loader))
+
+        for i, (input_batch, target_batch) in enumerate(data_loader):
+            if i < num_batches:
+                # Move input and target batches to the device
+                input_batch = input_batch.to(self.device)
+                target_batch = target_batch.to(self.device)
+
+                # Disable gradient calculation for inference
+                with torch.no_grad():
+                    logits = self.model(input_batch)[:, -1, :]   # [batch_size, num_classes]
+                
+                # Get the predicted labels
+                predicted_labels = torch.argmax(logits, dim=-1)
+                
+                # Update total and correct predictions count
+                total_predictions += predicted_labels.shape[0]
+                correct_predictions += (predicted_labels == target_batch).sum().item()
+            else:
+                break
+        
+        return correct_predictions / total_predictions
+    
+    def model_information(self):
+        """
+        Prints a summary of the model including the number of parameters and GFLOPs.
+
+        This method takes a batch of input data from the training loader. It then prints 
+        the model summary, the number of floating point operations per second (FLOPs), 
+        and the number of parameters in the model.
+        """
+        # Get a batch of input data from the training loader
+        input_batch, _ = next(iter(self.train_loader))
+        input_batch = input_batch.to(self.device)
+
+        # Print model summary
+        summary(self.model, input_data=input_batch, device=self.device)
+
+        # Calculate FLOPs and parameters
+        flops, params = profile(self.model, (input_batch,))
+
+        # Print FLOPs and parameters in human-readable format
+        print(f'GFLOPs: {flops / 1000**3 : .2f}')
+        print(f'MParams: {params / 1000**2 : .2f}')
+        print("="*100)
+
+        # Print training environment information
+        print("Accelerate device: ", self.device)
+        print("The number of epochs: ", self.num_epochs)
+        print("Evaluation frequency: ", self.eval_freq)
+        print("Classifiter: ", self.is_classification)
+        print("Learning rate warmup: ", self.warmup)
+        print("Learning rate cosine decay: ", self.cos_dec)
+        print("Gradient clipping: ", self.grd_clip)
+        print("="*100)
+
+    def training(self):
+        """
+        Trains the model over multiple epochs with options for warmup and cosine decay
+        learning rate scheduling, gradient clipping, and optional evaluation steps.
+        """
+        warmup_step = 0
+        # Get the peak learning rate of optimizer
+        peak_lr = self.optimizer.param_groups[0]["lr"]
+        
+        # Calculate the total trainging steps and wramup step
+        total_train_step = len(self.train_loader) * self.num_epochs
+
+        if self.warmup:
+            # 20% warmup
+            warmup_step = int(0.20 * total_train_step)  
+            # Calculate the learning increment of the warmup stage
+            lr_increment = (peak_lr - self.inital_lr) / warmup_step
+
+        # Main training loop
+        for epoch in range(self.num_epochs):
+            self.model.train()  # Set model to training mode
+
+            for i, (input_batch, target_batch) in enumerate(self.train_loader):
+                # print(f"{i}: {input_batch.shape}, {target_batch.shape}")
+                self.optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
+                self.log["global_step"] += 1
+
+                # Adjust the learning rate (warmup or cosine decay stage)
+                if self.log["global_step"] < warmup_step:
+                    # Liner warmup
+                    lr = self.inital_lr + lr_increment * self.log["global_step"]
+                elif self.cos_dec:
+                    # Cosine decay after warmup
+                    progress = ((self.log["global_step"] - warmup_step) /
+                                (total_train_step - warmup_step))
+                    lr = self.min_lr + ((peak_lr - self.min_lr) * 0.5 * 
+                                (1 + math.cos(math.pi * progress)))
+                else:
+                    lr = peak_lr
+                
+                # load learning rate to the optimizer
+                for param_group in  self.optimizer.param_groups:
+                    param_group["lr"] = lr
+                self.log["track_lrs"].append(lr)    
+
+                # Calculate and backpropagate the loss
+                loss = self.__calculate_loss_batch__(input_batch, target_batch)
+                loss.backward() 
+
+                # Gradient clipping after the warmup stage
+                if self.grd_clip and (self.log["global_step"] > warmup_step):
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
+                self.optimizer.step()  # Update model weights using loss gradients
+            
+                # Optional evaluation step
+                if self.log["global_step"] % self.eval_freq == 0:
+                    self.model.eval()
+                    with torch.no_grad():
+                        train_loss = self.__calculate_loss__(self.train_loader)
+                        if self.valid_loader is not None: 
+                            valid_loss = self.__calculate_loss__(self.valid_loader)
+                        else:
+                            valid_loss = 0.0
+                    
+                    self.log["train_losses"].append(train_loss)
+                    self.log["valid_losses"].append(valid_loss)
+                    print(f"Ep {epoch+1} (Step {self.log["global_step"]:06d}): "
+                          f"Train loss {train_loss:.3f}, Val loss {valid_loss:.3f}")
+
+                    # For classifitation tasks, calculate the train and validation accuracy
+                    if self.is_classification:
+                        train_acc = self.__calculate_accuracy__(self.train_loader)
+                        if self.valid_loader is not None: 
+                            valid_acc = self.__calculate_accuracy__(self.valid_loader)
+                        else:
+                            valid_acc = 0.0
+                        print(f"Training accuracy: {train_acc*100:.2f}% | ", end="")
+                        print(f"Validation accuracy: {valid_acc*100:.2f}%")
+                        self.log["train_accs"].append(train_acc)
+                        self.log["valid_accs"].append(valid_acc)
+                    self.model.train()
+                    
+                    # Save the trained model when the setting condition is met
+                    if (self.checkpoint_path is not None) and (valid_acc > 0.94):
+                        # Create the checkpoint directory if it doesn't exist
+                        if not os.path.exists(self.checkpoint_path):
+                            os.makedirs(self.checkpoint_path)
+                        file_dir = os.path.join(self.checkpoint_path, 
+                                                f"gpt2_small_{self.log["global_step"]+1}.pth"
+                                                )
+                        
+                        torch.save(self.model.state_dict(), file_dir)
+                        print(f"Saved path: {file_dir}")
+
+    def evaluate(self, eval_loader: DataLoader, checkpoint_path):
+        """
+        Evaluates the model using checkpoints found in the specified path.
+
+        Args:
+        - eval_loader (DataLoader): The data loader providing batches of evaluation data.
+        - checkpoint_path (str): The path to the directory containing the model checkpoints.
+
+        Prints:
+        - Evaluation loss and accuracy for each checkpoint.
+        """
+        self.model.eval() # Set model to evaluation mode
+
+        # Temporarily store the current value of eval_freq and set it to None
+        original_eval_freq = self.eval_freq
+        self.eval_freq = None
+
+        file_dir = os.listdir(checkpoint_path)
+        for filename in file_dir:
+            if ".pth" in filename:
+                checkpoint = os.path.join(checkpoint_path, filename)
+            else:
+                continue
+            self.model.load_state_dict(torch.load(checkpoint), strict=False)
+            with torch.no_grad():
+                eval_loss = self.__calculate_loss__(eval_loader)
+                eval_acc = self.__calculate_accuracy__(eval_loader)
+            print(f"{filename} -> Test loss: {eval_loss: .3f}, accuracy: {eval_acc*100: .2f}%")
+        
+        # Restore the original value of eval_freq
+        self.eval_freq = original_eval_freq
+
 
 def text_to_token_ids(text, tokenizer: tiktoken.Encoding):
     encoded = tokenizer.encode(text, allowed_special={'<|endoftext|>'})
@@ -74,261 +418,6 @@ def generate_and_print(model, tokenizer, device, start_context):
         print(decoded_text.replace("\n", " "))  # Compact print format
 
 
-def calc_loss_batch(input_batch, target_batch, model, device):
-    input_batch, target_batch = input_batch.to(device), target_batch.to(device)
-    logits = model(input_batch)
-    loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
-    return loss
-
-def calc_loss_cls_batch(input_batch, target_batch, model, device):
-    input_batch, target_batch = input_batch.to(device), target_batch.to(device)
-    logits = model(input_batch)[:, -1, :]   # [batch_size, num_classes]
-    loss = torch.nn.functional.cross_entropy(logits, target_batch)
-    return loss
-
-def calc_loss_epoch(data_loader: DataLoader, model, device, num_batches=None):
-    total_loss = 0.0
-    if len(data_loader) == 0:
-        print("nan")
-        return float("nan")
-    elif num_batches is None:
-        num_batches = len(data_loader)
-    else:
-        # Control the number of batches in the dataloader with "num_batches"
-        num_batches = min(num_batches, len(data_loader))
-    
-    for i, (input_batch, target_batch) in enumerate(data_loader):
-        if i < num_batches:
-            batch_loss = calc_loss_cls_batch(input_batch, target_batch, model, device)
-            total_loss += batch_loss.item()
-        else:
-            break
-
-    return total_loss / num_batches
-
-def calc_accuracy_loader(data_loader: DataLoader, model, device, num_batches=None):
-    model.eval()
-    correct_predictions, total_predictions = 0, 0
-
-    if num_batches is None:
-        num_batches = len(data_loader)
-    else:
-        num_batches = min(num_batches, len(data_loader))
-
-    for i, (input_batch, target_batch) in enumerate(data_loader):
-        if i < num_batches:
-            input_batch, target_batch = input_batch.to(device), target_batch.to(device)
-            
-            with torch.no_grad():
-                logits = model(input_batch)[:, -1, :]   # [batch_size, num_classes]
-            predicted_labels = torch.argmax(logits, dim=-1)
-            
-            total_predictions += predicted_labels.shape[0]
-            correct_predictions += (predicted_labels == target_batch).sum().item()
-        else:
-            break
-    return correct_predictions / total_predictions
-
-
-def evaluate_model(model, train_loader, valid_loader, device, eval_iter):
-    model.eval()
-    with torch.no_grad():
-        train_loss = calc_loss_epoch(train_loader, model, device, eval_iter)
-        valid_loss = calc_loss_epoch(valid_loader, model, device, eval_iter)
-    model.train()
-    return train_loss, valid_loss
-
-def train_model_simple(model, train_loader, valid_loader, optimizer, device, num_epochs,
-                       eval_freq, eval_iter, start_context, tokenizer):
-    # Initialize lists to track losses and tokens seen
-    train_losses, val_losses, track_tokens_seen = [], [], []
-    tokens_seen = 0
-    global_step = -1
-
-    # Main training loop
-    for epoch in range(num_epochs):
-        model.train()  # Set model to training mode
-
-        for input_batch, target_batch in train_loader:
-            optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
-            loss = calc_loss_batch(input_batch, target_batch, model, device)
-            loss.backward()  # Calculate loss gradients
-            optimizer.step()  # Update model weights using loss gradients
-            tokens_seen += input_batch.numel()
-            global_step += 1
-
-            # Optional evaluation step
-            if global_step % eval_freq == 0:
-                train_loss, val_loss = evaluate_model(
-                    model, train_loader, valid_loader, device, eval_iter)
-                train_losses.append(train_loss)
-                val_losses.append(val_loss)
-                track_tokens_seen.append(tokens_seen)
-                print(f"Ep {epoch+1} (Step {global_step:06d}): "
-                      f"Train loss {train_loss:.3f}, Val loss {val_loss:.3f}")
-
-        # Print a sample text after each epoch
-        generate_and_print(
-            model, tokenizer, device, start_context
-        )
-
-    return train_losses, val_losses, track_tokens_seen
-
-def train_model(model, train_loader, valid_loader, optimizer, num_epochs, 
-                device, eval_freq, eval_iter, start_context, tokenizer, 
-                warmup_rate=0.20, inital_lr=3e-5, min_lr=1e-6):
-    
-    train_losses, valid_losses, track_tokens_seen, track_lrs = [], [], [], []
-    tokens_seen, global_step = 0, -1
-
-    # 获取 optimizer 中最大学习率
-    peak_lr = optimizer.param_groups[0]["lr"]
-    
-    # 计算训练阶段迭代总次数和 warmup_step
-    total_training_steps = len(train_loader) * num_epochs
-    warmup_step = int(warmup_rate * total_training_steps)
-
-    # 计算 Warmup 阶段学习率增量
-    lr_increment = (peak_lr - inital_lr) / warmup_step
-
-    # Main training loop
-    for epoch in range(num_epochs):
-        model.train()
-        for i, (input_batch, target_batch) in enumerate(train_loader):
-            optimizer.zero_grad()   # 初始化梯度值
-            global_step += 1
-
-            # 根据当前阶段（Warmup 或 Cosine annealing）调整学习率
-            if global_step < warmup_step:
-                # Liner warmup
-                lr = inital_lr + lr_increment * global_step
-            else:
-                # Cosine annealing after warmup
-                progress = ((global_step - warmup_step) /
-                            (total_training_steps - warmup_step))
-                lr = min_lr + ((peak_lr - min_lr) * 0.5 * 
-                               (1 + math.cos(math.pi * progress)))
-            
-            # load learning rate to the optimizer
-            for param_group in  optimizer.param_groups:
-                param_group["lr"] = lr
-            track_lrs.append(lr)    
-
-            batch_loss = calc_loss_batch(input_batch, target_batch, model, device)
-            batch_loss.backward()   # 计算损失梯度  
-
-            # 在 Warmup 阶段后应用 Gradient clipping 以避免梯度爆炸
-            if global_step > warmup_step:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
-            optimizer.step()        # 根据梯度更新模型权重
-            tokens_seen += input_batch.numel()
-            
-            # 评估阶段（可选）
-            if global_step % eval_freq == 0:
-                train_loss, valid_loss = evaluate_model(
-                    model, train_loader, valid_loader, device, eval_iter)
-                train_losses.append(train_loss)
-                valid_losses.append(valid_loss)
-                track_tokens_seen.append(tokens_seen)
-                print(f"Ep {epoch+1} (Step {global_step:06d}): "
-                      f"Train loss {train_loss:.3f}, Val loss {valid_loss:.3f}")
-
-        # Print a text after each epoch
-        generate_and_print(model, tokenizer, device, start_context)
-
-    return train_losses, valid_losses, track_tokens_seen
-
-def model_infomation_print(model, input_batch, device) -> None:
-    input_batch = input_batch.to(device)
-    summary(model, input_data=input_batch, device=device)
-    flops, params = profile(model, (input_batch,))
-
-    print(f'GFLOPs: {flops / 1000**3 : .2f}')
-    print(f'MParams: {params / 1000**2 : .2f}')
-    print("="*100, '\n')
-
-def tarin_classifier_model(model, train_loader, valid_loader, optimizer, device, 
-                            num_epochs, eval_freq, eval_iter, warmup=False, cos_dec=False,
-                            grd_clip=False, inital_lr=3e-5, min_lr=1e-6):
-    # Initialize lists to track losses and accuracy
-    train_losses, val_losses, train_accs, val_accs, track_lrs= [], [], [], [], []
-    warmup_step, total_predictions, global_step = 0, 0, -1
-
-    # Get the peak learning rate of optimizer
-    peak_lr = optimizer.param_groups[0]["lr"]
-    
-    # Calculate the total trainging steps and wramup step
-    total_training_steps = len(train_loader) * num_epochs
-
-    if warmup:
-        # 20% warmup
-        warmup_step = int(0.20 * total_training_steps)  
-        # Calculate the learning increment of the warmup stage
-        lr_increment = (peak_lr - inital_lr) / warmup_step
-
-    # Main training loop
-    for epoch in range(num_epochs):
-        model.train()  # Set model to training mode
-
-        for i, (input_batch, target_batch) in enumerate(train_loader):
-            # print(f"{i}: {input_batch.shape}, {target_batch.shape}")
-            optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
-            global_step += 1
-
-            # Adjust the learning rate (warmup or cosine decay stage)
-            if global_step < warmup_step:
-                # Liner warmup
-                lr = inital_lr + lr_increment * global_step
-            elif cos_dec:
-                # Cosine decay after warmup
-                progress = ((global_step - warmup_step) /
-                            (total_training_steps - warmup_step))
-                lr = min_lr + ((peak_lr - min_lr) * 0.5 * 
-                            (1 + math.cos(math.pi * progress)))
-            else:
-                lr = peak_lr
-            
-            # load learning rate to the optimizer
-            for param_group in  optimizer.param_groups:
-                param_group["lr"] = lr
-            track_lrs.append(lr)    
-
-            loss = calc_loss_cls_batch(input_batch, target_batch, model, device)
-            loss.backward()  # Calculate loss gradients
-
-            # Gradient clipping after the warmup stage
-            if grd_clip and (global_step > warmup_step):
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-            optimizer.step()  # Update model weights using loss gradients
-            total_predictions += input_batch.shape[0]
-
-            # Optional evaluation step
-            if global_step % eval_freq == 0:
-                train_loss, val_loss = evaluate_model(
-                    model, train_loader, valid_loader, device, eval_iter)
-                train_losses.append(train_loss)
-                val_losses.append(val_loss)
-                print(f"Ep {epoch+1} (Step {global_step:06d}): "
-                        f"Train loss {train_loss:.3f}, Val loss {val_loss:.3f}")
-
-        
-
-        train_acc = calc_accuracy_loader(train_loader, model, device, eval_iter)
-        val_acc = calc_accuracy_loader(valid_loader, model, device, eval_iter)
-        print(f"Training accuracy: {train_acc*100:.2f}% | ", end="")
-        print(f"Validation accuracy: {val_acc*100:.2f}%")
-        train_accs.append(train_acc)
-        val_accs.append(val_acc)
-
-        # Save the trained model
-        if val_acc > 0.90:
-            torch.save(model.state_dict(), f"spam_gpt2_{int(val_acc*100)}_{global_step+1}.pth")
-        
-    return train_losses, val_losses, train_accs, val_accs, total_predictions, track_lrs
-
-
 def plot_values(num_epochs, total_predictions, train_values, valid_values, label="loss"):
     fig, ax1 = plt.subplots(figsize=(5, 3), dpi=300)
 
@@ -350,11 +439,6 @@ def plot_values(num_epochs, total_predictions, train_values, valid_values, label
     fig.tight_layout()  # Adjust layout to make room
     plt.savefig(f"{label}-plot.pdf")
 
-@torch.no_grad()    # Disabled the gradient
-def test_classifier_model(test_loader, model, device):
-    test_loss = calc_loss_epoch(test_loader, model, device)
-    test_acc = calc_accuracy_loader(test_loader, model, device)
-    print(f"Test loss: {test_loss: .3f}, accuracy: {test_acc*100: .2f}%")
 
 # def __plot_lrs(num_epochs, total_predictions, track_lrs):
 #     fig, ax1 = plt.subplots(figsize=(5, 3), dpi=300)

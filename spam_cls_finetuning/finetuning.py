@@ -5,11 +5,10 @@ import time
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
 
-
 from data_loader import create_dataloader
 from load_weigths import load_weigths_gpt2_hf
 
-import trainer
+from trainer import Trainer
 
 from architecture import GPTModel
 import torch
@@ -97,49 +96,43 @@ def main():
                                 weight_decay=HYPER_PARAMS_CONFIG["weight_decay"],
                                 momentum=0.99,
                                 )
-    
-    # Print the model information (FLOPs and total parameter, et al)
-    # input_batch, _ = next(iter(train_loader))
-    # trainer.model_infomation_print(model, input_batch, device)
 
 
-    start_time = time.time()
-
-    train_losses, val_losses, train_accs, val_accs, total_examples, track_lrs = \
-    trainer.tarin_classifier_model(
-        model=model, 
-        train_loader=train_loader, 
-        valid_loader=valid_loader, 
-        optimizer=optimizer, 
-        device=device, 
-        num_epochs=HYPER_PARAMS_CONFIG['num_epochs'], 
-        eval_freq=129, 
-        eval_iter=None,
-        warmup=True,
-        cos_dec=True,
-        # grd_clip=True,
+    trainer = Trainer(
+            model=model, 
+            device=device, 
+            train_loader=train_loader,
+            valid_loader=valid_loader,
+            is_classification=True,
+            num_epochs=HYPER_PARAMS_CONFIG["num_epochs"], 
+            optimizer=optimizer,
+            eval_freq=129,
+            warmup=True,
+            cos_dec=True,
+            checkpoint_path="./spam_cls_finetuning/checkpoints/"
         )
-
+    
+    # Print the model information
+    trainer.model_information()
+    
+    # train model
+    start_time = time.time()
+    trainer.training()
     end_time = time.time()
     total_time_minutes = (end_time - start_time) / 60
     print(f"Training completed in {total_time_minutes:.2f} minutes.")
 
-    # Plot the losses and accuracy of the train and validation sets
-    trainer.plot_values(
-        HYPER_PARAMS_CONFIG["num_epochs"], total_examples, train_losses, val_losses, "loss")
-    trainer.plot_values(
-        HYPER_PARAMS_CONFIG["num_epochs"], total_examples, train_accs, val_accs, "accuracy")
-    # plt.show()
+    # evaluate model
+    trainer.evaluate(test_loader, checkpoint_path="./spam_cls_finetuning/checkpoints/")
 
-    # Calculate the test set loss and accuracy
-    net = GPTModel(GPT_CONFIG_124M)
-    net.out_proj = torch.nn.Linear(in_features=model.out_proj.in_features, out_features=2)
-    net.to(device)
-    net.eval()
-    
-    # load model
-    net.load_state_dict(torch.load("spam_gpt2_93_260.pth"), strict=False)
-    trainer.test_classifier_model(test_loader, net, device)
+    # # Plot the losses and accuracy of the train and validation sets
+    # trainer.plot_values(
+    #     HYPER_PARAMS_CONFIG["num_epochs"], total_examples, train_losses, val_losses, "loss")
+    # trainer.plot_values(
+    #     HYPER_PARAMS_CONFIG["num_epochs"], total_examples, train_accs, val_accs, "accuracy")
+    # # plt.show()
+
+
 
 
 if __name__ == "__main__":

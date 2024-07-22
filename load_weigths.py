@@ -35,19 +35,11 @@ def load_weigths_gpt2_hf(gpt: architecture.GPTModel, CHOOSE_MODEL = "gpt2-small 
 
     BASE_CONFIG.update(model_configs[CHOOSE_MODEL])
 
+    # Download pre-trained weigths from Hugging Face
     gpt_hf = GPT2Model.from_pretrained(
         model_names[CHOOSE_MODEL], cache_dir="checkpoints")
     
     d = gpt_hf.state_dict()
-    # l = gpt.state_dict()
-    # d_keys = [iter for iter in d.keys()]
-    # l_keys = [iter for iter in l.keys()]
-    # print("*"*40)
-    # for i in range(15):
-    #     print(d_keys[i], d[d_keys[i]].shape)
-    # print("*"*40)
-    # for i in range(20):
-    #     print(l_keys[i-20], l[l_keys[i-20]].shape)
 
     gpt.token_emb.weight = assign_check(gpt.token_emb.weight, gpt_hf.wte.weight)
     gpt.position_emb.weight = assign_check(gpt.position_emb.weight, gpt_hf.wpe.weight)
