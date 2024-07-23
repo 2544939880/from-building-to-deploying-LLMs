@@ -18,7 +18,7 @@ class Trainer():
     This class supports various features including learning rate warmup, cosine decay, gradient 
     clipping, and periodic evaluation. It can handle both classification and regression tasks.
     '''
-
+    
     def __init__(
             self, 
             model: nn.Module, 
@@ -87,10 +87,13 @@ class Trainer():
     def __log__(self):
         """
         Get the training logs
+
+        Returns:
+        - log (dict): A dictionary containing the training logs.
         """
         return self.log
     
-    def __calculate_loss_batch__(
+    def __calculate_loss_batch(
             self, 
             input_batch: torch.Tensor, 
             target_batch: torch.Tensor,
@@ -121,7 +124,7 @@ class Trainer():
         
         return loss
 
-    def __calculate_loss__(self, data_loader:DataLoader):
+    def __calculate_loss(self, data_loader:DataLoader):
         """
         Calculates the average loss over all batches (or self.eval_freq batches) in the data loader.
         
@@ -142,7 +145,7 @@ class Trainer():
         for i, (input_batch, target_batch) in enumerate(data_loader):
             if i < num_batches:
                 # Calculate loss for the current batch
-                batch_loss = self.__calculate_loss_batch__(input_batch, target_batch)
+                batch_loss = self.__calculate_loss_batch(input_batch, target_batch)
                 total_loss += batch_loss.item()
             else:
                 break
@@ -150,7 +153,7 @@ class Trainer():
         # Compute the average loss over processed batches
         return total_loss / num_batches
 
-    def __calculate_accuracy__(self, data_loader: DataLoader):
+    def __calculate_accuracy(self, data_loader: DataLoader):
         """
         Calculates the accuracy over all batches (or self.eval_freq batches) for 
         classification tasks using the provided data loader.
@@ -269,7 +272,7 @@ class Trainer():
                 self.log["track_lrs"].append(lr)    
 
                 # Calculate and backpropagate the loss
-                loss = self.__calculate_loss_batch__(input_batch, target_batch)
+                loss = self.__calculate_loss_batch(input_batch, target_batch)
                 loss.backward() 
 
                 # Gradient clipping after the warmup stage
@@ -282,41 +285,43 @@ class Trainer():
                 if self.log["global_step"] % self.eval_freq == 0:
                     self.model.eval()
                     with torch.no_grad():
-                        train_loss = self.__calculate_loss__(self.train_loader)
+                        train_loss = self.__calculate_loss(self.train_loader)
                         if self.valid_loader is not None: 
-                            valid_loss = self.__calculate_loss__(self.valid_loader)
+                            valid_loss = self.__calculate_loss(self.valid_loader)
                         else:
                             valid_loss = 0.0
-                    
+                    self.model.train()
+            
                     self.log["train_losses"].append(train_loss)
                     self.log["valid_losses"].append(valid_loss)
                     print(f"Ep {epoch+1} (Step {self.log["global_step"]:06d}): "
                           f"Train loss {train_loss:.3f}, Val loss {valid_loss:.3f}")
 
-                    # For classifitation tasks, calculate the train and validation accuracy
-                    if self.is_classification:
-                        train_acc = self.__calculate_accuracy__(self.train_loader)
-                        if self.valid_loader is not None: 
-                            valid_acc = self.__calculate_accuracy__(self.valid_loader)
-                        else:
-                            valid_acc = 0.0
-                        print(f"Training accuracy: {train_acc*100:.2f}% | ", end="")
-                        print(f"Validation accuracy: {valid_acc*100:.2f}%")
-                        self.log["train_accs"].append(train_acc)
-                        self.log["valid_accs"].append(valid_acc)
-                    self.model.train()
-                    
-                    # Save the trained model when the setting condition is met
-                    if (self.checkpoint_path is not None) and (valid_acc > 0.94):
-                        # Create the checkpoint directory if it doesn't exist
-                        if not os.path.exists(self.checkpoint_path):
-                            os.makedirs(self.checkpoint_path)
-                        file_dir = os.path.join(self.checkpoint_path, 
-                                                f"gpt2_small_{self.log["global_step"]+1}.pth"
-                                                )
-                        
-                        torch.save(self.model.state_dict(), file_dir)
-                        print(f"Saved path: {file_dir}")
+            # For classifitation tasks, calculate the train and validation accuracy
+            if self.is_classification:
+                train_acc = self.__calculate_accuracy(self.train_loader)
+                if self.valid_loader is not None: 
+                    valid_acc = self.__calculate_accuracy(self.valid_loader)
+                else:
+                    valid_acc = 0.0
+                self.log["train_accs"].append(train_acc)
+                self.log["valid_accs"].append(valid_acc)  
+
+                print(f"Ep {epoch+1} (Step {self.log["global_step"]:06d}): "
+                      f"Training accuracy: {train_acc*100:.2f}% | "
+                      f"Validation accuracy: {valid_acc*100:.2f}%")
+                
+            # Save the trained model when the setting condition is met
+            if (self.checkpoint_path is not None) and (valid_acc > 0.94):
+                # Create the checkpoint directory if it doesn't exist
+                if not os.path.exists(self.checkpoint_path):
+                    os.makedirs(self.checkpoint_path)
+                file_dir = os.path.join(self.checkpoint_path, 
+                                        f"gpt2_small_{self.log["global_step"]+1}.pth"
+                                        )
+                
+                torch.save(self.model.state_dict(), file_dir)
+                print(f"Saved path: {file_dir}")
 
     def evaluate(self, eval_loader: DataLoader, checkpoint_path):
         """
@@ -343,8 +348,8 @@ class Trainer():
                 continue
             self.model.load_state_dict(torch.load(checkpoint), strict=False)
             with torch.no_grad():
-                eval_loss = self.__calculate_loss__(eval_loader)
-                eval_acc = self.__calculate_accuracy__(eval_loader)
+                eval_loss = self.__calculate_loss(eval_loader)
+                eval_acc = self.__calculate_accuracy(eval_loader)
             print(f"{filename} -> Test loss: {eval_loss: .3f}, accuracy: {eval_acc*100: .2f}%")
         
         # Restore the original value of eval_freq

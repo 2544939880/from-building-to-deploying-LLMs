@@ -18,7 +18,7 @@ torch.manual_seed(123)
 
 # Select accelerator device
 if torch.backends.mps.is_available() or torch.cuda.is_available():
-    device = torch.device("gpu" if torch.cuda.is_available() else "mps")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 else:
     device = torch.device("cpu")
 
