@@ -35,6 +35,7 @@ class Trainer():
             inital_lr: float = 3e-5, 
             min_lr: float = 1e-6,
             checkpoint_path: str = None,
+            tokenizer: tiktoken.Encoding = None,
     ):
         """
         Initializes the Trainer object with the provided model, training parameters, and options.
@@ -71,6 +72,7 @@ class Trainer():
         self.inital_lr = inital_lr
         self.min_lr = min_lr
         self.checkpoint_path = checkpoint_path
+        self.tokenizer = tokenizer
 
         # Initializes the logs to keep track of training progress
         self.log = {
@@ -192,7 +194,16 @@ class Trainer():
                 break
         
         return correct_predictions / total_predictions
-    
+
+    def __text_to_token_ids(self, text):
+        token_ids = self.tokenizer.encode(text, allowed_special={'<|endoftext|>'})
+        token_ids_tensor = torch.tensor(token_ids).unsqueeze(0) # add batch dimension
+        return token_ids_tensor
+
+    def __token_ids_to_text(self, token_ids):
+        flat = token_ids.squeeze(0) # remove batch dimension
+        return self.tokenizer.decode(flat.tolist())
+
     def model_information(self):
         """
         Prints a summary of the model including the number of parameters and GFLOPs.
@@ -325,7 +336,7 @@ class Trainer():
 
     def evaluate(self, eval_loader: DataLoader, checkpoint_path):
         """
-        Evaluates the model using checkpoints found in the specified path.
+        Evaluates the classification model using checkpoints found in the specified path.
 
         Args:
         - eval_loader (DataLoader): The data loader providing batches of evaluation data.
@@ -355,6 +366,49 @@ class Trainer():
         # Restore the original value of eval_freq
         self.eval_freq = original_eval_freq
 
+    def text_generator(self, prompt, max_new_tokens, temperature=0.0, top_k=None):
+        self.model.eval()
+        context_length = self.model.position_emb.weigth.shape[0]
+        token_ids = self.__text_to_token_ids(prompt).to(self.device)
+
+        for _ in range(max_new_tokens):
+            # Crop current context if it exceeds the supported context length
+            # E.g., if LLM supports only 5 tokens, and the context length is 10
+            # then only the last 5 tokens are used as context
+            ids_cond = token_ids[:, -context_length:]
+            
+            # Get the predictions
+            with torch.no_grad():
+                logits = self.model(ids_cond)
+
+            # Focus only on the last time step
+            # (batch, n_token, vocab_size) becomes (batch, vocab_size)
+            logits = logits[:, -1, :]
+
+            # The logits with the top k sampled
+            if top_k is not None:
+                top_logits, top_positions = torch.topk(logits, top_k)
+                min_val = top_logits[:, -1]
+                logits = torch.where(
+                    logits < min_val, torch.tensor(float('-inf')).to(logits.device), logits)
+
+            if temperature > 0.0:
+                logits = logits / temperature
+
+                probs = torch.softmax(logits, dim=-1)   # [batch_size, context_length]
+                id_next = torch.multinomial(probs, num_samples=1)  # [batch_length, 1]
+            
+            else:
+                # Get the idx of the vocab entry with the highest logits value
+                id_next = torch.argmax(logits, dim=-1, keepdim=True)  # (batch, 1)
+
+            if id_next == self.tokenizer.encode('<|endoftext|>'):
+                break
+
+            # Append sampled token id to the running sequence
+            token_ids = torch.cat((token_ids, id_next), dim=1)  # (batch, n_tokens+1)
+
+        return self.__token_ids_to_text(token_ids)
 
 def text_to_token_ids(text, tokenizer: tiktoken.Encoding):
     encoded = tokenizer.encode(text, allowed_special={'<|endoftext|>'})
