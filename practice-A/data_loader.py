@@ -53,9 +53,9 @@ class SpamDataset(Dataset):
         )
 
 def create_dataloader(tokenizer, batch_size, num_workers):
-    train_set = SpamDataset(f"sms_spam_collection/train.csv", tokenizer)
-    valid_set = SpamDataset(f"sms_spam_collection/validation.csv", tokenizer)
-    test_set = SpamDataset(f"sms_spam_collection/test.csv", tokenizer)
+    train_set = SpamDataset(f"./practice-A/sms_spam_collection/train.csv", tokenizer)
+    valid_set = SpamDataset(f"./practice-A/sms_spam_collection/validation.csv", tokenizer)
+    test_set = SpamDataset(f"./practice-A/sms_spam_collection/test.csv", tokenizer)
 
     torch.manual_seed(123)
 
