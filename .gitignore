@@ -2,6 +2,7 @@ logs/
 test.py
 self_attention.py
 demo.ipynb
+blogs/
 
 */checkpoints/
 checkpoints/
