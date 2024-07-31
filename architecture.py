@@ -7,16 +7,17 @@ class GPTModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
+        # Token and position embeddings
         self.token_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"])
         self.position_emb = nn.Embedding(cfg["context_length"], cfg["emb_dim"])
         self.dropout = nn.Dropout(cfg["dropout"])
 
-        # 使用TransformerBlock占位符
+        # Transformer blocks
         self.trf_blocks = nn.Sequential(
             *[TransformerBlock(cfg) for _ in range(cfg["n_layers"])]
         )
     
-        # 使用LayerNorm占位符
+        # Final normalization layer and output projection
         self.final_norm = LayerNorm(cfg["emb_dim"])
         self.out_proj = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False)
 
@@ -25,8 +26,9 @@ class GPTModel(nn.Module):
         token_embeds = self.token_emb(x)
         position_embeds = self.position_emb(torch.arange(num_tokens).to(x.device))
 
+        # Add token and position embeddings
         # x shape: [batch_size, num_tokens, emb_dim]
-        x = token_embeds + position_embeds
+        x = token_embeds + position_embeds  
         x = self.dropout(x)
         x = self.trf_blocks(x)
         x = self.final_norm(x)
@@ -53,6 +55,7 @@ class GELU(nn.Module):
         super().__init__()
     
     def forward(self, x):
+        # Gaussian Error Linear Unit activation
         out = 0.5 * x * (1 + torch.tanh(
                 torch.sqrt(torch.tensor(2.0 / torch.pi)) * 
                 (x + 0.044715 * torch.pow(x, 3))
@@ -99,7 +102,7 @@ class MultiHeadCausalAttention(nn.Module):
         keys = self.W_key(x)
         values = self.W_value(x)
 
-        # 我们通过添加“num_heads”维度来隐式地分割矩阵
+        # Split the matrix by adding a "num_heads" dimension
         # q, k, and v shape: [batch_size, num_heads, num_tokens, head_dim]
         queries, keys, values = map(
             lambda x: rearrange(x, 'b s (h d) -> b h s d', h=self.num_heads),
@@ -108,7 +111,7 @@ class MultiHeadCausalAttention(nn.Module):
 
         attn_scores = queries @ keys.transpose(2, 3)
 
-        # 根据输入num_tokens设置掩码表尺寸
+        # Set mask size according to the number of tokens
         mask_bool = self.mask.bool()[:num_tokens, :num_tokens]
         attn_scores.masked_fill_(mask_bool, -torch.inf)
 
