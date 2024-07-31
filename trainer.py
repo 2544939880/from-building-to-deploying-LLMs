@@ -28,6 +28,7 @@ class Trainer():
             train_loader: DataLoader = None, 
             valid_loader: DataLoader = None, 
             eval_freq: int = None, 
+            eval_iter: int = None,
             is_classification: bool = False, 
             warmup: bool = False,
             cos_dec: bool = False,
@@ -47,7 +48,9 @@ class Trainer():
         - optimizer: The optimizer for training the model.
         - train_loader: The DataLoader for training data (default: None).
         - valid_loader: The DataLoader for validation data (default: None).
-        - eval_freq: Evaluation frequency to control the number of batches processed (default: None).
+        - eval_freq: Evaluation frequency to control how often (in epochs) the model is evaluated 
+                     during training (default: None).
+        - eval_iter: Evaluation iterations to control the number of batches processed (default: None).
         - is_classification: Whether the task is classification, if is_classification is True, only 
                              the last time step of the model's output is used for loss calculation
                              (default: False).
@@ -63,6 +66,7 @@ class Trainer():
         self.num_epochs = num_epochs
         self.optimizer = optimizer
         self.eval_freq = eval_freq
+        self.eval_iter = eval_iter
         self.is_classification = is_classification
         self.train_loader = train_loader
         self.valid_loader = valid_loader
@@ -128,7 +132,7 @@ class Trainer():
 
     def __calculate_loss(self, data_loader:DataLoader):
         """
-        Calculates the average loss over all batches (or self.eval_freq batches) in the data loader.
+        Calculates the average loss over all batches (or self.eval_iter batches) in the data loader.
         
         Args:
         - data_loader (DataLoader): The data loader providing batches of data.
@@ -138,11 +142,11 @@ class Trainer():
         """
         total_loss = 0.0
 
-        if self.eval_freq is None:
+        if self.eval_iter is None:
             num_batches = len(data_loader)
         else:
             # Control the number of batches in the dataloader with "num_batches"
-            num_batches = min(self.eval_freq, len(data_loader))
+            num_batches = min(self.eval_iter, len(data_loader))
         
         for i, (input_batch, target_batch) in enumerate(data_loader):
             if i < num_batches:
@@ -157,7 +161,7 @@ class Trainer():
 
     def __calculate_accuracy(self, data_loader: DataLoader):
         """
-        Calculates the accuracy over all batches (or self.eval_freq batches) for 
+        Calculates the accuracy over all batches (or self.eval_iter batches) for 
         classification tasks using the provided data loader.
 
         Args:
@@ -169,10 +173,10 @@ class Trainer():
         self.model.eval()   # Set the model to evaluation mode
         correct_predictions, total_predictions = 0, 0
 
-        if self.eval_freq is None:
+        if self.eval_iter is None:
             num_batches = len(data_loader)
         else:
-            num_batches = min(self.eval_freq, len(data_loader))
+            num_batches = min(self.eval_iter, len(data_loader))
 
         for i, (input_batch, target_batch) in enumerate(data_loader):
             if i < num_batches:
@@ -231,6 +235,7 @@ class Trainer():
         print("Accelerate device: ", self.device)
         print("The number of epochs: ", self.num_epochs)
         print("Evaluation frequency: ", self.eval_freq)
+        print("Evaluation iterations: ", self.eval_iter)
         print("Classifiter: ", self.is_classification)
         print("Learning rate warmup: ", self.warmup)
         print("Learning rate cosine decay: ", self.cos_dec)
@@ -347,9 +352,9 @@ class Trainer():
         """
         self.model.eval() # Set model to evaluation mode
 
-        # Temporarily store the current value of eval_freq and set it to None
-        original_eval_freq = self.eval_freq
-        self.eval_freq = None
+        # Temporarily store the current value of eval_iter and set it to None
+        original_eval_iter = self.eval_iter
+        self.eval_iter = None
 
         file_dir = os.listdir(checkpoint_path)
         for filename in file_dir:
@@ -363,12 +368,12 @@ class Trainer():
                 eval_acc = self.__calculate_accuracy(eval_loader)
             print(f"{filename} -> Test loss: {eval_loss: .3f}, accuracy: {eval_acc*100: .2f}%")
         
-        # Restore the original value of eval_freq
-        self.eval_freq = original_eval_freq
+        # Restore the original value of eval_iter
+        self.eval_iter = original_eval_iter
 
     def text_generator(self, prompt, max_new_tokens, temperature=0.0, top_k=None):
         self.model.eval()
-        context_length = self.model.position_emb.weigth.shape[0]
+        context_length = self.model.position_emb.weight.shape[0]
         token_ids = self.__text_to_token_ids(prompt).to(self.device)
 
         for _ in range(max_new_tokens):
@@ -402,7 +407,7 @@ class Trainer():
                 # Get the idx of the vocab entry with the highest logits value
                 id_next = torch.argmax(logits, dim=-1, keepdim=True)  # (batch, 1)
 
-            if id_next == self.tokenizer.encode('<|endoftext|>'):
+            if id_next == self.tokenizer.encode('<|endoftext|>', allowed_special={"<|endoftext|>"}):
                 break
 
             # Append sampled token id to the running sequence
