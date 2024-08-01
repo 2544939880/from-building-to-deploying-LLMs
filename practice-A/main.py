@@ -105,10 +105,11 @@ def main():
             is_classification=True,
             num_epochs=HYPER_PARAMS_CONFIG["num_epochs"], 
             optimizer=optimizer,
-            eval_freq=129,
+            eval_freq=100,
+            eval_iter=10,
             warmup=True,
             cos_dec=True,
-            checkpoint_path="./spam_cls_finetuning/checkpoints/"
+            checkpoint_path="./practice-A/checkpoints/"
         )
     
     # Print the model information
@@ -122,7 +123,7 @@ def main():
     print(f"Training completed in {total_time_minutes:.2f} minutes.")
 
     # evaluate model
-    trainer.evaluate(test_loader, checkpoint_path="./spam_cls_finetuning/checkpoints/")
+    trainer.evaluate(test_loader, checkpoint_path="./practice-A/checkpoints/")
 
     # # Plot the losses and accuracy of the train and validation sets
     # trainer.plot_values(
