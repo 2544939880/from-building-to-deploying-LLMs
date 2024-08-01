@@ -80,7 +80,6 @@ def main():
 
     # The gpt2 encoder of tokenizer
     tokenizer = tiktoken.get_encoding("gpt2")
-    tokenizer.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})
 
     # Create the train, validation, and test dataloader
     train_loader, valid_loader, test_loader = create_dataloader(

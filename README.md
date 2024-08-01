@@ -9,7 +9,7 @@ This repository running environment `python=3.12`. If you already have a Python 
     pip install -r requirements.txt
 
 >[!TIP]
->I am using computers running macOS, but this workflow is similar for Linux machines and may work for other operating systems as well.
+>I am using computers running macOS (Macmini M2 16GB), but this workflow is similar for Linux machines and may work for other operating systems as well.
 
 
 # 🧑‍💻 Code Specification
@@ -27,4 +27,4 @@ The [demo.ipynb](./demo.ipynb) provides a comprehensive description of the pre-t
 
 # ⏩ Fine-tuning
 
-The [practice-A](./practice-A/) and [practice-B](./practice-B/) involves fine-tuning pre-trained models like GPT-2 for various downstream tasks. This process focuses on understanding the specifics of fine-tuning for both classification and autoregressive tasks. Low requirements on hardware performance (`Running device: Macmini M2 16GB`).
+The [practice-A](./practice-A/) and [practice-B](./practice-B/) involves fine-tuning pre-trained models like GPT-2 for various downstream tasks. This process focuses on understanding the specifics of fine-tuning for both classification and autoregressive tasks. Low requirements on hardware performance.

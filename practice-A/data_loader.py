@@ -1,9 +1,6 @@
 from torch.utils.data import Dataset, DataLoader
 import torch
-from pathlib import Path
 import pandas as pd
-
-
 
 class SpamDataset(Dataset):
     def __init__(self, file_csv, tokenizer, max_length=None, padding_token_id=50256):

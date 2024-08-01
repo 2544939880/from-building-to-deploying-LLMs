@@ -40,9 +40,9 @@ def download_and_unzip_spam_data(url, zip_path, extracted_path, data_file_path):
 def create_balanced_dataset(df: pd.DataFrame):
     num_spam = df[df['Label'] == 'spam'].shape[0]
     # df.sample(n, frac, ...)
-    # n: 随机抽取n行数据
-    # frac: 随机抽取frac比例的数据
-    # n 和 frac 不能同时使用
+    # n: rondomly select data of n row
+    # frac: rondomly select data of frac rate 
+    # Only choose between n and frac 
     ham_subset = df[df['Label'] == 'ham'].sample(num_spam, random_state=123)
 
     balanced_df = pd.concat([ham_subset, df[df["Label"] == 'spam']])
