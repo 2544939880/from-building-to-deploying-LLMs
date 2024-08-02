@@ -5,12 +5,15 @@ import os
 from pathlib import Path
 import pandas as pd
 
+# URL for the dataset
 url = "https://archive.ics.uci.edu/static/public/228/sms+spam+collection.zip"
+# Paths for saving the downloaded zip file and the extracted data
 zip_path = "./practice-A/sms_spam_collection.zip"
 extracted_path = "./practice-A/sms_spam_collection"
 data_file_path = Path(extracted_path) / "SMSSpamCollection.tsv"
 
 def download_and_unzip_spam_data(url, zip_path, extracted_path, data_file_path):
+    # Check if the data file already exists to skip download and extraction if so
     if data_file_path.exists():
         print(f"{data_file_path} already exists. Skipping download and extraction.")
         return
@@ -38,16 +41,15 @@ def download_and_unzip_spam_data(url, zip_path, extracted_path, data_file_path):
     print(f"File successfully extracted and saved as {data_file_path}")
 
 def create_balanced_dataset(df: pd.DataFrame):
+    # Find the number of spam messages
     num_spam = df[df['Label'] == 'spam'].shape[0]
-    # df.sample(n, frac, ...)
-    # n: rondomly select data of n row
-    # frac: rondomly select data of frac rate 
-    # Only choose between n and frac 
+    # Sample the same number of ham messages
     ham_subset = df[df['Label'] == 'ham'].sample(num_spam, random_state=123)
-
+    
+    # Combine the spam messages and the sampled ham messages
     balanced_df = pd.concat([ham_subset, df[df["Label"] == 'spam']])
 
-    # change the string class labels "ham" and "spam" into integer class labels 0 and 1
+    # Map the string labels to integer labels: 'ham' -> 0, 'spam' -> 1
     balanced_df["Label"] = balanced_df["Label"].map({"ham": 0, "spam": 1})
 
     return balanced_df
@@ -55,37 +57,45 @@ def create_balanced_dataset(df: pd.DataFrame):
 def random_split(df: pd.DataFrame, train_frac, valid_frac, test_frac):
     # Shuffle the entire DataFrame
     df = df.sample(frac=1, random_state=123).reset_index(drop=True)
-
+    
+    # Calculate the indices for splitting the DataFrame
     train_end_idx = int(len(df) * train_frac)
     valid_end_idx = train_end_idx + int(len(df) * valid_frac)
 
+    # Split the DataFrame into training, validation, and test sets
     train_df = df[: train_end_idx]
     valid_df = df[train_end_idx: valid_end_idx]
     test_df = df[valid_end_idx: ]
 
+    # Print the sizes of the splits
     print("="*100)
     print("Total dataset: ", len(df))
     print("Train set: ", len(train_df))
     print("Validation set: ", len(valid_df))
     print("Test set: ", len(test_df))
 
+    # Save the splits to CSV files
     train_df.to_csv(f"{Path(extracted_path)}/train.csv", index=None)
     valid_df.to_csv(f"{Path(extracted_path)}/validation.csv", index=None)
     test_df.to_csv(f"{Path(extracted_path)}/test.csv", index=None)
 
 def create_files_csv(data_file_path, split_rate: list, balanced=False):
+    # Read the dataset from the file
     df = pd.read_csv(data_file_path, sep='\t', header=None, names=['Label', 'Text'])
     print(df)
     print(df['Label'].value_counts())
     
+    # Create a balanced dataset if specified
     if balanced:
         df = create_balanced_dataset(df)
         print(df['Label'].value_counts())
 
+    # Split the dataset and save the splits to CSV files
     random_split(df, split_rate[0], split_rate[1], split_rate[2])
     print(f"{split_rate} random splited and saved to train.csv, validation.csv, and test.csv")
 
 
-download_and_unzip_spam_data(url, zip_path, extracted_path, data_file_path)
-
-create_files_csv(data_file_path, [0.7, 0.1, 0.2], balanced=True)
+if __name__ == "__main__":
+    # Download, extract, and process the dataset
+    download_and_unzip_spam_data(url, zip_path, extracted_path, data_file_path)
+    create_files_csv(data_file_path, [0.7, 0.1, 0.2], balanced=True)
