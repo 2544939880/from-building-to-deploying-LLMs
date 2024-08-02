@@ -2,7 +2,7 @@
 
 This practice implements a spam classification model using the pre-trained GPT-2 (small) architecture. The model is trained and evaluated on the SMS Spam Collection dataset.
 
-## Project Structure
+## 📖 Project Structure
 
 ```css
 ├── sms_spam_collection/
@@ -12,7 +12,7 @@ This practice implements a spam classification model using the pre-trained GPT-2
 └── README.md
 ```
 
-## Code Description
+## 🧑‍💻 Code Description
 
 [**`preproccess.py`**](./preproccess.py):
 
@@ -42,7 +42,7 @@ This script sets up and **fine-tuning** a GPT-2 model on a **classification task
 
 ---
 
-## How to Run
+## 🚂 How to Run
 
 1. **Set Up Environment**: Ensure you have Python installed and set up a virtual environment. Install the required packages:
    
