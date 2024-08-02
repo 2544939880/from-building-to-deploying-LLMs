@@ -1,10 +1,11 @@
-# Spam Classification with pre-trained GPT-2
+# Spam Classification with Pretrained GPT-2
 
 This practice implements a spam classification model using the pre-trained GPT-2 (small) architecture. The model is trained and evaluated on the SMS Spam Collection dataset.
 
 ## Project Structure
 
 ```css
+├── sms_spam_collection/
 ├── data_loader.py
 ├── main.py
 ├── preproccess.py
@@ -13,8 +14,6 @@ This practice implements a spam classification model using the pre-trained GPT-2
 
 ## Code Description
 
-
----
 [**`preproccess.py`**](./preproccess.py):
 
 This script is designed to download the SMS Spam Collection dataset, extract it, and process it into a balanced and randomly split format for training, validation, and testing purposes.
@@ -30,15 +29,18 @@ This script is designed to download the SMS Spam Collection dataset, extract it,
 - `create_files_csv()`: Saves the split datasets into separate CSV files.
 
 ---
+
 [**`data_loader.py`**](./data_loader.py):
 
 This script defines a custom dataset class (`SpamDataset`) for loading and processing the SMS Spam Collection dataset, and a function (`create_dataloader`) to create data loaders for training, validation, and testing. The data is tokenized, padded, and prepared for model training using PyTorch.
 
 ---
+
 [**`main.py`**](./main.py)
 
 This script sets up and **fine-tuning** a GPT-2 model on a **classification task** using the SMS Spam Collection dataset. It initializes the model, loads pre-trained weights, configures the model for classification, creates data loaders, and trains the model using an optimizer. The script also evaluates the model and prints training information.
 
+---
 
 ## How to Run
 
