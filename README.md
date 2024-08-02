@@ -28,3 +28,8 @@ The [demo.ipynb](./demo.ipynb) provides a comprehensive description of the pre-t
 # ⏩ Fine-tuning
 
 The [practice-A](./practice-A/) and [practice-B](./practice-B/) involves fine-tuning pre-trained models like GPT-2 for various downstream tasks. This process focuses on understanding the specifics of fine-tuning for both classification and autoregressive tasks. Low requirements on hardware performance.
+
+
+# 💗 References
+
+- Sebastian Raschka. *Build A Large Language Model (From Scratch)*. Manning, 2024. ISBN: 978-1633437166. [Book link](https://www.manning.com/books/build-a-large-language-model-from-scratch). [GitHub Repository](https://github.com/rasbt/LLMs-from-scratch)
