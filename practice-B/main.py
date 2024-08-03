@@ -1,100 +1,119 @@
-import tiktoken
-import torch
-import torch.nn as nn
-from preproccess import InstructionDataset, download_and_load_file
-from torch.utils.data import DataLoader
+import sys
+import os
+# Get the absolute path of the parent directory of the current file's directory
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
+# Add the parent directory to the system path to allow importing modules from it
+sys.path.append(parent_dir)
+
+import time
+import torch
+import tiktoken
+from data_loader import InstructionDataset, create_dataloader
+from architecture import GPTModel
+from load_weigths import load_weigths_gpt2_hf
+from trainer import Trainer
+
+# Set a manual seed for reproducibility
 torch.manual_seed(123)
 
-file_path = "instructions_finetuning/instruction-data.json"
-url = "https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch07/01_main-chapter-code/instruction-data.json"
+# Select accelerator device (cuda, mps, or cpu)
+if torch.backends.mps.is_available() or torch.cuda.is_available():
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+else:
+    device = torch.device("cpu")
+
+
+# The gpt2-medium (355M) parameter configuration
+GPT_CONFIG_355M = {
+        "vocab_size" : 50257,    # Vocabulary size
+        "context_length" : 1024, # Context length         
+        "emb_dim" : 1024,         # Embedding dimension
+        "n_heads" : 16,          # Number of attntion heads
+        "n_layers" : 24,         # Number of layers
+        "dropout" : 0.0,         # Dropout rate
+        "qkv_bias" : True        # Query, Key, and Value bias
+}    
 
 # Hyper-parameters configuration
 HYPER_CONFIG = {
     "batch_size" : 8,   
     "num_workers" : 0,
-    "num_epochs" : 5,
-    "lr" : 1e-4,
-    "weight_decay" : 1e-5,
-    "num_classes" : 2,
+    "num_epochs" : 2,
+    "lr" : 5e-5,
+    "weight_decay" : 0.1,
 } 
 
-tokenizer = tiktoken.get_encoding("gpt2")
-tokenizer.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})
 
-data = download_and_load_file(file_path, url)
+def main():
+    # Create a GPT model and load pre-trained weights
+    model = GPTModel(GPT_CONFIG_355M)
+    model = load_weigths_gpt2_hf(model, CHOOSE_MODEL = "gpt2-medium (355M)")
+    model.eval()
 
-# Split the data to train, validation, and test set
-train_rate = int(len(data) * 0.85)   # 85% train rate
-valid_rate = int(len(data) * 0.05)   # 5% validation rate
-train_data = data[: train_rate]
-valid_data = data[train_rate : train_rate + valid_rate]
-test_data = data[train_rate + valid_rate: ]   
+    dataset = InstructionDataset()
+    
+    train_loader, val_loader, test_loader = create_dataloader(
+        num_workers=HYPER_CONFIG["num_workers"],
+        batch_size=HYPER_CONFIG["batch_size"],
+        dataset=dataset,
+        split_rate_list=[0.8, 0.1, 0.1],    # [train, validation, test]
+    )
 
-# Create the dataset of train, validation and test
-train_set = InstructionDataset(train_data, tokenizer)
-valid_set = InstructionDataset(valid_data, tokenizer)
-test_set = InstructionDataset(test_data, tokenizer)
+    # The GPT-2 encoder tokenizer
+    tokenizer = tiktoken.get_encoding("gpt2")
 
-# Desiged the collate function
-def collate_fn(batch, pad_token_id=50256, ignore_id=-100, allowed_length=None):        
-    batch_max_length = max(len(data) for data in batch)
-    inputs, targets = [], []
+    # Create a AdamW optimizer
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr=HYPER_CONFIG["lr"],
+        weight_decay=HYPER_CONFIG["weight_decay"],
+    )
+    
+    # Create an SGD optimizer
+    # optimizer = torch.optim.SGD(model.parameters(),
+    #     lr=HYPER_CONFIG["lr"],
+    #     weight_decay=HYPER_CONFIG["weight_decay"],
+    #     momentum=0.99,
+    # )
 
-    for item in batch:
-        # Padding the last tokens to max_length+1
-        # Adds at least 1 additional padding tokens to easily split target_batch
-        new_item = item.copy()
-        new_item = new_item + [pad_token_id] * (batch_max_length - len(item) + 1)
+    # Initialize the trainer
+    trainer = Trainer(
+        model=model,
+        device=device,
+        num_epochs=HYPER_CONFIG["num_epochs"],
+        optimizer=optimizer,
+        train_loader=train_loader,
+        valid_loader=val_loader,
+        eval_freq=5,
+        eval_iter=5,
+        tokenizer=tokenizer,
+        checkpoint_path="./practice-B/checkpoints/"
+    )
 
-        # Create the input and target of each batch
-        input = torch.tensor(new_item[: -1], dtype=torch.int32)
-        target = torch.tensor(new_item[1: ], dtype=torch.int32)
+    
+    # Print the model information
+    trainer.model_information()
 
-        # The ingnore_index value to replace all padding token IDs of the target, 
-        # that can ingnore padding value in the loss function calculation
-        mask = target == pad_token_id
-        mask = [idx for idx, item in enumerate(mask) if item]
-        target[mask[1:]] = ignore_id
+    # Generate the test text before fine-tuning
+    data = dataset.__download_and_load_file__()
+    format_input = dataset.__format_input__(data[1])
+    
+    before_out = trainer.text_generator(format_input, max_new_tokens=50)
+    print('-'*100)
+    print(before_out)
 
-        # Optionally truncate to maximum length
-        if allowed_length is not None:
-            input = input[:allowed_length]
-            target = target[:allowed_length]
+    # Train the model and record running time
+    start_time = time.time()
+    trainer.training()
+    end_time = time.time()
+    total_time_minutes = (end_time - start_time) / 60
+    print(f"Training completed in {total_time_minutes:.2f} minutes.")
 
-        inputs.append(input)
-        targets.append(target)
+    after_out = trainer.text_generator(format_input, max_new_tokens=50)
+    print('-'*100)
+    print(after_out)
 
-    inputs_tensor = torch.stack(inputs)
-    targets_tensor = torch.stack(targets)
-    return inputs_tensor, targets_tensor
-
-
-# Create the dataloader
-train_loader = DataLoader(
-    dataset=train_set,
-    batch_size=HYPER_CONFIG["batch_size"],
-    num_workers=HYPER_CONFIG["num_workers"],
-    collate_fn=collate_fn,
-    shuffle=True,
-    drop_last=True,
-)
-valid_loader = DataLoader(
-    dataset=valid_set,
-    batch_size=HYPER_CONFIG["batch_size"],
-    num_workers=HYPER_CONFIG["num_workers"],
-    collate_fn=collate_fn,
-    shuffle=False,
-    drop_last=False,
-)
-test_loader = DataLoader(
-    dataset=test_set,
-    batch_size=HYPER_CONFIG["batch_size"],
-    num_workers=HYPER_CONFIG["num_workers"],
-    collate_fn=collate_fn,
-    shuffle=False,
-    drop_last=False,
-)
-
-
+if __name__ == "__main__":
+    main()
 
