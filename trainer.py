@@ -49,7 +49,7 @@ class Trainer():
         - train_loader: The DataLoader for training data (default: None).
         - valid_loader: The DataLoader for validation data (default: None).
         - eval_freq: Evaluation frequency to control how often (in epochs) the model is evaluated 
-                     during training (default: None).
+                     during training (default: None -> Not evaluation).
         - eval_iter: Evaluation iterations to control the number of batches processed (default: None).
         - is_classification: Whether the task is classification, if is_classification is True, only 
                              the last time step of the model's output is used for loss calculation
@@ -328,7 +328,7 @@ class Trainer():
                       f"Validation accuracy: {valid_acc*100:.2f}%")
                 
             # Save the trained model when the setting condition is met
-            if (self.checkpoint_path is not None) and (valid_acc > 0.94):
+            if (self.checkpoint_path is not None) and (epoch+1 == self.num_epochs):
                 # Create the checkpoint directory if it doesn't exist
                 if not os.path.exists(self.checkpoint_path):
                     os.makedirs(self.checkpoint_path)
