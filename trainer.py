@@ -8,8 +8,10 @@ from torch.utils.data import DataLoader
 import math
 import matplotlib.pyplot as plt
 
-from thop import profile
+from thop import profile as thop_profile
 from torchsummary import summary
+
+from memory_profiler import profile
 
 class Trainer():
     '''
@@ -99,11 +101,7 @@ class Trainer():
         """
         return self.log
     
-    def __calculate_loss_batch(
-            self, 
-            input_batch: torch.Tensor, 
-            target_batch: torch.Tensor,
-    ):
+    def __calculate_loss_batch(self, input_batch: torch.Tensor, target_batch: torch.Tensor):
         """
         Calculates the loss for a single batch of data.
         
@@ -142,20 +140,16 @@ class Trainer():
         """
         total_loss = 0.0
 
-        if self.eval_iter is None:
-            num_batches = len(data_loader)
-        else:
-            # Control the number of batches in the dataloader with "num_batches"
-            num_batches = min(self.eval_iter, len(data_loader))
-        
-        for i, (input_batch, target_batch) in enumerate(data_loader):
-            if i < num_batches:
+        # Control the number of batches in the dataloader with "num_batches"
+        num_batches = len(data_loader) if self.eval_iter is None else min(self.eval_iter, len(data_loader))
+        with torch.no_grad():
+            for i, (input_batch, target_batch) in enumerate(data_loader):
+                if i >= num_batches:
+                    break
                 # Calculate loss for the current batch
                 batch_loss = self.__calculate_loss_batch(input_batch, target_batch)
                 total_loss += batch_loss.item()
-            else:
-                break
-
+                
         # Compute the average loss over processed batches
         return total_loss / num_batches
 
@@ -173,29 +167,26 @@ class Trainer():
         self.model.eval()   # Set the model to evaluation mode
         correct_predictions, total_predictions = 0, 0
 
-        if self.eval_iter is None:
-            num_batches = len(data_loader)
-        else:
-            num_batches = min(self.eval_iter, len(data_loader))
+        # Control the number of batches in the dataloader with "num_batches"
+        num_batches = len(data_loader) if self.eval_iter is None else min(self.eval_iter, len(data_loader))
 
         for i, (input_batch, target_batch) in enumerate(data_loader):
-            if i < num_batches:
-                # Move input and target batches to the device
-                input_batch = input_batch.to(self.device)
-                target_batch = target_batch.to(self.device)
+            # Move input and target batches to the device
+            input_batch = input_batch.to(self.device)
+            target_batch = target_batch.to(self.device)
 
-                # Disable gradient calculation for inference
-                with torch.no_grad():
-                    logits = self.model(input_batch)[:, -1, :]   # [batch_size, num_classes]
-                
-                # Get the predicted labels
-                predicted_labels = torch.argmax(logits, dim=-1)
-                
-                # Update total and correct predictions count
-                total_predictions += predicted_labels.shape[0]
-                correct_predictions += (predicted_labels == target_batch).sum().item()
-            else:
+            if i >= num_batches:
                 break
+            # Disable gradient calculation for inference
+            with torch.no_grad():
+                logits = self.model(input_batch)[:, -1, :]   # [batch_size, num_classes]
+            
+            # Get the predicted labels
+            predicted_labels = torch.argmax(logits, dim=-1)
+            
+            # Update total and correct predictions count
+            total_predictions += predicted_labels.shape[0]
+            correct_predictions += (predicted_labels == target_batch).sum().item()
         
         return correct_predictions / total_predictions
 
@@ -224,7 +215,7 @@ class Trainer():
         summary(self.model, input_data=input_batch, device=self.device)
 
         # Calculate FLOPs and parameters
-        flops, params = profile(self.model, (input_batch,))
+        flops, params = thop_profile(self.model, (input_batch,))
 
         # Print FLOPs and parameters in human-readable format
         print(f'GFLOPs: {flops / 1000**3 : .2f}')
@@ -242,6 +233,7 @@ class Trainer():
         print("Gradient clipping: ", self.grd_clip)
         print("="*100)
 
+    @profile
     def training(self):
         """
         Trains the model over multiple epochs with options for warmup and cosine decay
@@ -263,10 +255,9 @@ class Trainer():
         # Main training loop
         for epoch in range(self.num_epochs):
             self.model.train()  # Set model to training mode
-
+            
             for i, (input_batch, target_batch) in enumerate(self.train_loader):
                 # print(f"{i}: {input_batch.shape}, {target_batch.shape}")
-                self.optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
                 self.log["global_step"] += 1
 
                 # Adjust the learning rate (warmup or cosine decay stage)
@@ -296,30 +287,24 @@ class Trainer():
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                 self.optimizer.step()  # Update model weights using loss gradients
-                
+                self.optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
+
                 # Optional evaluation step
                 if self.log["global_step"] % self.eval_freq == 0:
                     self.model.eval()
-                    with torch.no_grad():
-                        train_loss = self.__calculate_loss(self.train_loader)
-                        if self.valid_loader is not None: 
-                            valid_loss = self.__calculate_loss(self.valid_loader)
-                        else:
-                            valid_loss = 0.0
+                    train_loss = self.__calculate_loss(self.train_loader)
+                    valid_loss = self.__calculate_loss(self.valid_loader) if self.valid_loader else 0.0
                     self.model.train()
-            
                     self.log["train_losses"].append(train_loss)
                     self.log["valid_losses"].append(valid_loss)
+
                     print(f"Ep {epoch+1} (Step {self.log["global_step"]:06d}): "
                           f"Train loss {train_loss:.3f}, Val loss {valid_loss:.3f}")
 
             # For classifitation tasks, calculate the train and validation accuracy
             if self.is_classification:
                 train_acc = self.__calculate_accuracy(self.train_loader)
-                if self.valid_loader is not None: 
-                    valid_acc = self.__calculate_accuracy(self.valid_loader)
-                else:
-                    valid_acc = 0.0
+                valid_acc = self.__calculate_accuracy(self.valid_loader) if self.valid_loader else 0.0
                 self.log["train_accs"].append(train_acc)
                 self.log["valid_accs"].append(valid_acc)  
 
@@ -333,8 +318,7 @@ class Trainer():
                 if not os.path.exists(self.checkpoint_path):
                     os.makedirs(self.checkpoint_path)
                 file_dir = os.path.join(self.checkpoint_path, 
-                                        f"gpt2_small_{self.log["global_step"]+1}.pth"
-                                        )
+                                        f"gpt2_small_{self.log["global_step"]+1}.pth")
                 
                 torch.save(self.model.state_dict(), file_dir)
                 print(f"Saved path: {file_dir}")

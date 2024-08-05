@@ -143,6 +143,10 @@ def create_dataloader(
     test_portion = int(len(dataset) * split_rate_list[-1])    # 10% for testing
     val_portion = len(dataset) - train_portion - test_portion  # Remaining 5% for validation
 
+    print("Train portion: ", train_portion)
+    print("validation portion: ", val_portion)
+    print("test portion: ", test_portion)
+
     train_set, val_set, test_set = random_split(
             dataset=dataset,
             lengths=[train_portion, val_portion, test_portion],

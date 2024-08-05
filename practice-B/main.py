@@ -37,7 +37,7 @@ GPT_CONFIG_355M = {
 
 # Hyper-parameters configuration
 HYPER_CONFIG = {
-    "batch_size" : 4,   
+    "batch_size" : 8,   
     "num_workers" : 0,
     "num_epochs" : 2,
     "lr" : 5e-5,
@@ -57,7 +57,7 @@ def main():
         num_workers=HYPER_CONFIG["num_workers"],
         batch_size=HYPER_CONFIG["batch_size"],
         dataset=dataset,
-        split_rate_list=[0.8, 0.1, 0.1],    # [train, validation, test]
+        split_rate_list=[0.1, 0.1, 0.8],    # [train, validation, test]
     )
 
     # The GPT-2 encoder tokenizer
