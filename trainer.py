@@ -296,7 +296,7 @@ class Trainer():
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                 self.optimizer.step()  # Update model weights using loss gradients
-            
+                
                 # Optional evaluation step
                 if self.log["global_step"] % self.eval_freq == 0:
                     self.model.eval()

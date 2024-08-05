@@ -95,7 +95,7 @@ class InstructionDataset(Dataset):
 
 
 # Desiged the collate function
-def __custom_collate_fn(batch, pad_token_id=50256, ignore_id=-100, allowed_length=None):        
+def __custom_collate_fn(batch, device="cpu", pad_token_id=50256, ignore_id=-100, allowed_length=None):        
     batch_max_length = max(len(data) for data in batch)
     inputs, targets = [], []
 
@@ -123,8 +123,8 @@ def __custom_collate_fn(batch, pad_token_id=50256, ignore_id=-100, allowed_lengt
         inputs.append(input)
         targets.append(target)
 
-    inputs_tensor = torch.stack(inputs)
-    targets_tensor = torch.stack(targets)
+    inputs_tensor = torch.stack(inputs).to(device)
+    targets_tensor = torch.stack(targets).to(device)
 
     return inputs_tensor, targets_tensor
 

@@ -37,7 +37,7 @@ GPT_CONFIG_355M = {
 
 # Hyper-parameters configuration
 HYPER_CONFIG = {
-    "batch_size" : 8,   
+    "batch_size" : 4,   
     "num_workers" : 0,
     "num_epochs" : 2,
     "lr" : 5e-5,
