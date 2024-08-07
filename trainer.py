@@ -80,6 +80,12 @@ class Trainer():
         self.checkpoint_path = checkpoint_path
         self.tokenizer = tokenizer
 
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(), 
+            lr=5e-5,
+            weight_decay=0.1,
+        )
+
         # Initializes the logs to keep track of training progress
         self.log = {
             "train_losses": [float],      # List to store training losses
@@ -117,7 +123,6 @@ class Trainer():
 
         # Forward pass
         logits = self.model(input_batch)
-        print(logits.shape)
         if self.is_classification:
             # For classification tasks, use only the last time step's output
             logits = logits[:, -1, :]  # [batch_size, num_classes]
@@ -391,8 +396,7 @@ class Trainer():
                 # Get the idx of the vocab entry with the highest logits value
                 id_next = torch.argmax(logits, dim=-1, keepdim=True)  # (batch, 1)
             
-            print(id_next.squeeze(0), self.tokenizer.encode('<|endoftext|>', allowed_special={"<|endoftext|>"}))
-            if id_next.squeeze(0) == self.tokenizer.encode('<|endoftext|>', allowed_special={"<|endoftext|>"}):
+            if int(id_next.squeeze(0)) == 50256:
                 break
 
             # Append sampled token id to the running sequence

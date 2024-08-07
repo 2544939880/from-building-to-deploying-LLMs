@@ -123,11 +123,23 @@ def __custom_collate_fn(batch, device="cpu", pad_token_id=50256, ignore_id=-100,
         inputs.append(input)
         targets.append(target)
 
-    inputs_tensor = torch.stack(inputs).to(device)
-    targets_tensor = torch.stack(targets).to(device)
+    inputs_tensor = torch.stack(inputs).to(dtype=torch.long, device=device)
+    targets_tensor = torch.stack(targets).to(dtype=torch.long, device=device)
 
     return inputs_tensor, targets_tensor
 
+def __format_input__(entry):
+        """
+        Formats the data entry into the required input structure.
+        """
+        instruction_text = (
+            f"Below is an instruction that describes a task. "
+            f"Write a response that appropriately completes the request."
+            f"\n\n### Instruction:\n{entry['instruction']}"
+        )
+        input_text = f"\n\n### Input:\n{entry['input']}" if entry["input"] else ""
+
+        return instruction_text + input_text
 
 def create_dataloader(
         batch_size,
@@ -152,6 +164,8 @@ def create_dataloader(
     print("Train portion: ", train_portion)
     print("validation portion: ", val_portion)
     print("test portion: ", test_portion)
+    
+    test_input = __format_input__(val_data[0])
 
     train_set = InstructionDataset_V2(train_data)
     val_set = InstructionDataset_V2(val_data)
@@ -187,7 +201,7 @@ def create_dataloader(
         drop_last=False,
     )
 
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader, test_loader, test_input
 
 
 def download_and_load_file(data_path=file_path, url=url):
@@ -229,7 +243,7 @@ class InstructionDataset_V2(Dataset):
                 # Tokenize the formatted prompt
                 tokenizer.encode(full_text, allowed_special={"<|endoftext|>"}) 
             )
-
+    
     def __format_prompt__(self, entry):
         """
         Formats the data entry into the required prompt structure.
