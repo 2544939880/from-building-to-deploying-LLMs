@@ -132,26 +132,32 @@ def __custom_collate_fn(batch, device="cpu", pad_token_id=50256, ignore_id=-100,
 def create_dataloader(
         batch_size,
         num_workers,
-        dataset: Dataset,
+        dataset: Dataset=None,
         split_rate_list: list[float]=[0.85, 0.05, 0.1],
         collate_fn=__custom_collate_fn,
 ):
     assert (sum(split_rate_list) == 1.0), \
     "The sum of the split rates should be equal to 1"
 
-    train_portion = int(len(dataset) * split_rate_list[0])  # 85% for training
-    test_portion = int(len(dataset) * split_rate_list[-1])    # 10% for testing
-    val_portion = len(dataset) - train_portion - test_portion  # Remaining 5% for validation
+    data = download_and_load_file()
+
+    train_portion = int(len(data) * split_rate_list[0])  # 85% for training
+    test_portion = int(len(data) * split_rate_list[-1])    # 10% for testing
+    val_portion = len(data) - train_portion - test_portion  # Remaining 5% for validation
+    
+    train_data = data[:train_portion]
+    test_data = data[train_portion:train_portion + test_portion]
+    val_data = data[train_portion + test_portion:]
 
     print("Train portion: ", train_portion)
     print("validation portion: ", val_portion)
     print("test portion: ", test_portion)
 
-    train_set, val_set, test_set = random_split(
-            dataset=dataset,
-            lengths=[train_portion, val_portion, test_portion],
-            generator=torch.Generator().manual_seed(123),
-    )
+    train_set = InstructionDataset_V2(train_data)
+    val_set = InstructionDataset_V2(val_data)
+    test_set = InstructionDataset_V2(test_data)
+
+    torch.manual_seed(123)
     
     # Create the dataloader
     train_loader = DataLoader(
@@ -182,6 +188,82 @@ def create_dataloader(
     )
 
     return train_loader, val_loader, test_loader
+
+
+def download_and_load_file(data_path=file_path, url=url):
+    """
+    Downloads the dataset file if it doesn't exist, and then loads it.
+    """
+    if os.path.exists(data_path):
+        print(f"{data_path} already exists. Skipping download and extraction.")
+    else:
+        # Downloading the file
+        try:
+            with urllib.request.urlopen(url) as response:
+                with open(data_path, 'w', encoding='utf-8') as file:
+                    file.write(response.read().decode('utf-8'))  
+            print(f'File successfully downloaded to {data_path}')
+        except urllib.error.HTTPError as e:
+            print(f'HTTP Error: {e.code}')
+        except urllib.error.URLError as e:
+            print(f'URL Error: {e.reason}')
+        except Exception as e:
+            print(f'Unexpected Error: {str(e)}')
+
+    # load file
+    with open(data_path, 'r') as file:
+        data = json.load(file)
+    return data
+
+
+class InstructionDataset_V2(Dataset):
+    def __init__(self, data, tokenizer: tiktoken.Encoding=tiktoken.get_encoding("gpt2")):
+        self.data = data
+        self.tokenizer = tokenizer
+        
+        # Pre-tokenize texts
+        self.encoded_texts = []
+        for entry in self.data:
+            full_text = self.__format_prompt__(entry) # Format the prompt
+            self.encoded_texts.append(
+                # Tokenize the formatted prompt
+                tokenizer.encode(full_text, allowed_special={"<|endoftext|>"}) 
+            )
+
+    def __format_prompt__(self, entry):
+        """
+        Formats the data entry into the required prompt structure.
+        """
+        input_text = self.__format_input__(entry)
+        response_text = f"\n\n### Response:\n{entry['output']}"
+
+        return input_text + response_text
+    
+    def __format_input__(self, entry):
+        """
+        Formats the data entry into the required input structure.
+        """
+        instruction_text = (
+            f"Below is an instruction that describes a task. "
+            f"Write a response that appropriately completes the request."
+            f"\n\n### Instruction:\n{entry['instruction']}"
+        )
+        input_text = f"\n\n### Input:\n{entry['input']}" if entry["input"] else ""
+
+        return instruction_text + input_text
+        
+
+    def __getitem__(self, index):
+        """
+        Returns the tokenized text at the specified index.
+        """
+        return self.encoded_texts[index]
+
+    def __len__(self):
+        """
+        Returns the number of data entries.
+        """
+        return len(self.data)
 
 
 if __name__ == "__main__":
