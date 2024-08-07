@@ -82,12 +82,12 @@ class Trainer():
 
         # Initializes the logs to keep track of training progress
         self.log = {
-            "train_losses": [],      # List to store training losses
-            "valid_losses": [],      # List to store validation losses
-            "train_accs": [],        # List to store training accuracies
-            "valid_accs": [],        # List to store validation accuracies
-            "track_tokens_seen": [], # List to track tokens seen (if applicable)
-            "track_lrs": [],         # List to track learning rates
+            "train_losses": [float],      # List to store training losses
+            "valid_losses": [float],      # List to store validation losses
+            "train_accs": [float],        # List to store training accuracies
+            "valid_accs": [float],        # List to store validation accuracies
+            "track_tokens_seen": [int], # List to track tokens seen (if applicable)
+            "track_lrs": [float],         # List to track learning rates
             "global_step": -1,       # Counter for the global step in training
         }
 
@@ -117,7 +117,7 @@ class Trainer():
 
         # Forward pass
         logits = self.model(input_batch)
-
+        print(logits.shape)
         if self.is_classification:
             # For classification tasks, use only the last time step's output
             logits = logits[:, -1, :]  # [batch_size, num_classes]
@@ -233,7 +233,7 @@ class Trainer():
         print("Gradient clipping: ", self.grd_clip)
         print("="*100)
 
-    @profile
+
     def training(self):
         """
         Trains the model over multiple epochs with options for warmup and cosine decay
@@ -251,7 +251,7 @@ class Trainer():
             warmup_step = int(0.20 * total_train_step)  
             # Calculate the learning increment of the warmup stage
             lr_increment = (peak_lr - self.inital_lr) / warmup_step
-
+        
         # Main training loop
         for epoch in range(self.num_epochs):
             self.model.train()  # Set model to training mode
@@ -390,8 +390,9 @@ class Trainer():
             else:
                 # Get the idx of the vocab entry with the highest logits value
                 id_next = torch.argmax(logits, dim=-1, keepdim=True)  # (batch, 1)
-
-            if id_next == self.tokenizer.encode('<|endoftext|>', allowed_special={"<|endoftext|>"}):
+            
+            print(id_next.squeeze(0), self.tokenizer.encode('<|endoftext|>', allowed_special={"<|endoftext|>"}))
+            if id_next.squeeze(0) == self.tokenizer.encode('<|endoftext|>', allowed_special={"<|endoftext|>"}):
                 break
 
             # Append sampled token id to the running sequence
