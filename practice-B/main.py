@@ -25,6 +25,9 @@ else:
 
 device = torch.device("cpu")
 
+
+
+
 # The gpt2-medium (355M) parameter configuration
 GPT_CONFIG_355M = {
         "vocab_size" : 50257,    # Vocabulary size

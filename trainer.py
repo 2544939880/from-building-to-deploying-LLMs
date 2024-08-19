@@ -123,6 +123,7 @@ class Trainer():
 
         # Forward pass
         logits = self.model(input_batch)
+
         if self.is_classification:
             # For classification tasks, use only the last time step's output
             logits = logits[:, -1, :]  # [batch_size, num_classes]
