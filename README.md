@@ -8,8 +8,11 @@ This repository running environment `python=3.12`. If you already have a Python 
     
     pip install -r requirements.txt
 
+
 >[!TIP]
->I am using computers running macOS (Macmini M2 16GB), but this workflow is similar for Linux machines and may work for other operating systems as well.
+> - Certain versions of PyTorch exhibit issues with adaptation to Apple’s MPS acceleration device (such as `torch==2.3.1`), resulting in ***loss convergence anomalies*** during training. These issues were resolved in version `2.4.0`.
+> 
+> - I am using computers running macOS (Macmini M2 16GB), but this workflow is similar for Linux machines and may work for other operating systems as well. 
 
 
 # 🧑‍💻 Code Specification

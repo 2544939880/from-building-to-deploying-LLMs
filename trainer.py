@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 from thop import profile as thop_profile
 from torchsummary import summary
 
-from memory_profiler import profile
 
 class Trainer():
     '''
@@ -120,7 +119,7 @@ class Trainer():
         """
         input_batch = input_batch.to(self.device)
         target_batch = target_batch.to(self.device)
-
+        
         # Forward pass
         logits = self.model(input_batch)
 
@@ -131,7 +130,7 @@ class Trainer():
         else:
             # For prediction tasks, flatten logits and target
             loss = F.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
-        
+
         return loss
 
     def __calculate_loss(self, data_loader:DataLoader):
@@ -265,6 +264,7 @@ class Trainer():
             for i, (input_batch, target_batch) in enumerate(self.train_loader):
                 # print(f"{i}: {input_batch.shape}, {target_batch.shape}")
                 self.log["global_step"] += 1
+                self.optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
 
                 # Adjust the learning rate (warmup or cosine decay stage)
                 if self.log["global_step"] < warmup_step:
@@ -287,13 +287,12 @@ class Trainer():
                 # Calculate and backpropagate the loss
                 loss = self.__calculate_loss_batch(input_batch, target_batch)
                 loss.backward() 
-
+                
                 # Gradient clipping after the warmup stage
                 if self.grd_clip and (self.log["global_step"] > warmup_step):
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                 self.optimizer.step()  # Update model weights using loss gradients
-                self.optimizer.zero_grad()  # Reset loss gradients from previous batch iteration
 
                 # Optional evaluation step
                 if self.log["global_step"] % self.eval_freq == 0:

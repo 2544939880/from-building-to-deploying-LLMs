@@ -287,7 +287,7 @@ if __name__ == "__main__":
     format_data = dataset.__format_prompt__(data[50])
     print(format_data)
 
-    train_loader, val_loader, test_loader = create_dataloader(
+    train_loader, val_loader, test_loader, _ = create_dataloader(
         num_workers=0,
         batch_size=8,
         dataset=dataset,
