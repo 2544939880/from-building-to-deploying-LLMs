@@ -25,7 +25,7 @@ This repository running environment `python=3.12`. If you already have a Python 
 
 # 🚂 Pre-training
 
-The [demo.ipynb](./demo.ipynb) provides a comprehensive description of the pre-training process and its specifics.
+The [pretraining.ipynb](./pretraining.ipynb) provides a comprehensive description of the pre-training process and its specifics.
 
 
 # ⏩ Fine-tuning
