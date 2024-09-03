@@ -79,12 +79,6 @@ class Trainer():
         self.checkpoint_path = checkpoint_path
         self.tokenizer = tokenizer
 
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), 
-            lr=5e-5,
-            weight_decay=0.1,
-        )
-
         # Initializes the logs to keep track of training progress
         self.log = {
             "train_losses": [float],      # List to store training losses

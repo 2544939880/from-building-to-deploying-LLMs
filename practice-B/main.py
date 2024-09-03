@@ -129,11 +129,11 @@ def main():
     print(before_out)
 
     # Train the model and record running time
-    start_time = time.time()
-    trainer.training()
-    end_time = time.time()
-    total_time_minutes = (end_time - start_time) / 60
-    print(f"Training completed in {total_time_minutes:.2f} minutes.")
+    # start_time = time.time()
+    # trainer.training()
+    # end_time = time.time()
+    # total_time_minutes = (end_time - start_time) / 60
+    # print(f"Training completed in {total_time_minutes:.2f} minutes.")
 
     after_out = trainer.text_generator(test_input, max_new_tokens=50)
     print('-'*100)
