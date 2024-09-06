@@ -397,7 +397,9 @@ class Trainer():
             token_ids = torch.cat((token_ids, id_next), dim=1)  # (batch, n_tokens+1)
 
         return self.__token_ids_to_text(token_ids)
-
+    
+    def load_model_weights(self, checkpoint: str):
+        self.model.load_state_dict(torch.load(checkpoint), strict=False)
 
 def plot_values(num_epochs, total_predictions, train_values, valid_values, label="loss"):
     fig, ax1 = plt.subplots(figsize=(5, 3), dpi=300)

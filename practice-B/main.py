@@ -128,6 +128,9 @@ def main():
     print('-'*100)
     print(before_out)
 
+    # Loading pre-trained model
+    trainer.load_model_weights("./practice-B/checkpoints/gpt2_small_466.pth")
+
     # Train the model and record running time
     # start_time = time.time()
     # trainer.training()
